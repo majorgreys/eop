@@ -1,0 +1,344 @@
+---
+title: "Get you somebody who can do both?"
+author: "Tahir H. Butt"
+date: '2016-02-16'
+output:
+  html_document:
+    toc: yes
+    toc_depth: '2'
+  html_notebook: default
+  md_document:
+    fig_height: 6
+    fig_width: 7
+    toc: yes
+    toc_depth: 2
+    variant: markdown
+---
+
+Exploring CUNY in the [Equality of Opportunity](http://www.equality-of-opportunity.org/data/) ratings dataset.
+
+# Setup
+
+```{r setup, warning=FALSE, message=FALSE, results='hide', collapse=TRUE}
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(forcats)
+library(knitr)
+# Download datasets
+dir.create('./data/')
+download.file('http://www.equality-of-opportunity.org/data/college/mrc_table1.xlsx', 
+              destfile = "./data/ratings.xlsx",
+              method='curl')
+download.file('http://www.equality-of-opportunity.org/data/college/mrc_table10.csv', 
+              destfile = "./data/schoolinfo.csv",
+              method='curl')
+# EOP data uses OPE (Office of Postsecondary Education) ID so we need to download a mapping table to IPEDs
+download.file('https://data.mhec.state.md.us/MAC2Pilot/OPEID.xls', 
+              destfile = "./data/opeid.xls",
+              method='curl')
+# Use my cleaned public systems data, see https://gist.github.com/majorgreys/67facc0dfae5f9a0c90b3163be98e9c9
+download.file('https://gist.githubusercontent.com/majorgreys/67facc0dfae5f9a0c90b3163be98e9c9/raw/c32ecc15df7106a59adbc28f42c90fb8bfd0f3b6/publicsystems.csv', 
+              destfile = "./data/publicsystems.csv",
+              method='curl')
+# Read and prepare datasets
+schoolinfo <- read_csv('./data/schoolinfo.csv')
+opeid <- read_excel('./data/opeid.xls') %>% 
+  mutate(IPED6 = as.integer(IPED6),
+         OPEID6 = as.integer(OPEID6))
+publicsystems <- read_csv('./data/publicsystems.csv') %>%
+  # ignore CCS for now since they seem to be underrepresented in the EOP data
+  filter(publicsystem != 'CCS')
+opeid <- opeid %>% 
+  left_join(publicsystems, c('IPED6' = 'unitid')) %>% 
+  select(OPEID6, publicsystem)
+# read EOP ratings data and combine with school information
+ratings <- read_excel('./data/ratings.xlsx',
+                      skip=1,
+                      col_names = c('ipedid', 
+                                    'institution', 
+                                    'metroarea', 
+                                    'state', 
+                                    'median_parent_hhold_income', 
+                                    'median_child_indiv_earnings', 
+                                    'low_income_access', 
+                                    'percent_parents_in_top1percent', 
+                                    'success_rate', 
+                                    'uppertail_success_rate', 
+                                    'mobility_rate', 
+                                    'uppertail_mobility_rate', 
+                                    'change_percent_parents_bottom_quintile', 
+                                    'change_percent_parents_bottom_40', 
+                                    'number_students_cohort')) %>%  
+  na.omit() %>%
+  mutate(
+    ipedid = as.integer(ipedid),
+    mobility_rate = as.numeric(mobility_rate),
+    low_income_access = as.numeric(low_income_access),
+    success_rate = as.numeric(success_rate),
+    # cleanup CUNY names
+    institution = str_replace(institution, '[-]?[ /]?CUNY[,]?', ''),
+    institution = str_replace(institution, 'Of The City University Of New', '')
+  ) %>%
+  left_join(opeid, c('ipedid' = 'OPEID6')) %>%
+  left_join(schoolinfo, c('ipedid' = 'super_opeid')) %>%
+  distinct() %>%
+  mutate(
+    publicsystem = fct_relevel(publicsystem, 'CSU', 'SUNY', 'CUNY')
+    )
+```
+
+# Analyses
+
+## Large public systems rank highly in terms of mobility
+
+Selective public colleges are the most frequent cases in the top 50 colleges ranked by mobility. However, we also find non-selective four-year private colleges and for-profit community colleges represented in this set. 
+
+```{r results='asis'}
+ratings %>% 
+  arrange(-mobility_rate) %>%
+  select(institution, tier_name, mobility_rate) %>%
+  head(50) %>%
+  group_by(tier_name) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  kable()
+```
+
+Looking at each college in the top 50, we see the selective publics include CUNY, California State University, and SUNY. But less familiar names, Vaughn College, MCPHS, United Talamudic Seminary, are also highly ranked.
+
+```{r, fig.width=11}
+ratings %>% 
+  arrange(-mobility_rate) %>%
+  select(institution, tier_name, mobility_rate) %>%
+  head(50) %>%
+  ggplot(aes(fct_reorder(institution, mobility_rate), mobility_rate, fill=tier_name)) + 
+    geom_bar(stat='identity') + 
+    labs(title="Mobility rate of top colleges") +
+    xlab('') +
+    ylab('') +
+    geom_text(aes(label=sprintf('%0.2f', mobility_rate)), 
+              hjust=1.5,
+              vjust=0.25,
+              size=2.5,
+              position = position_dodge(width = 1), 
+              colour="white",
+              fontface = "bold",
+              inherit.aes = TRUE) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+## CUNY highly rated among public colleges
+
+I hand created a list of colleges in the large public systems (CSU, CUNY, SUNY). Of these, CUNY has a clear advantage in mobility ratings.
+
+```{r}
+ratings %>% 
+  filter(public == 1) %>%
+  arrange(-mobility_rate) %>%
+  select(institution, publicsystem, mobility_rate) %>%
+  head(30) %>%
+  group_by(publicsystem) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  kable()
+```
+
+```{r, fig.width=11}
+ratings %>% 
+  filter(public == 1) %>%
+  arrange(-mobility_rate) %>%
+  select(institution, publicsystem, mobility_rate) %>%
+  head(30) %>%
+  ggplot(aes(fct_reorder(institution, mobility_rate), mobility_rate, fill=publicsystem)) + 
+    geom_bar(stat='identity') + 
+    scale_fill_brewer(palette='Set1', na.value='grey60', name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
+    labs(title="Mobility rate of top public colleges") +
+    xlab('') +
+    ylab('') +
+    geom_text(aes(label=sprintf('%0.2f', mobility_rate)), 
+              hjust=1.5,
+              vjust=0.25,
+              size=2.5,
+              position = position_dodge(width = 1), 
+              colour="white",
+              fontface = "bold",
+              inherit.aes = TRUE) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+## Differences among public systems
+
+When we focus in on just the public systems, we can see that the three large public systems cluster differently on the component measures of the mobility rate, which is the product of the access and success rates. Roughly, CSUs seem to have higher access rates whereas CUNYs have higher success rates.
+
+```{r, warning=FALSE}
+ratings %>%
+  mutate(publicsystem = fct_relevel(publicsystem, 'CSU', 'SUNY', 'CUNY'),
+         mean_success_rate = mean(success_rate),
+         mean_low_income_access = mean(low_income_access)) %>%
+  ggplot(aes(success_rate, low_income_access, color=publicsystem, size=publicsystem, alpha=publicsystem)) +
+  geom_text_repel(aes(data=(. %>% filter(publicsystem == 'CUNY')), label = institution)) +
+  geom_hline(aes(yintercept=mean_success_rate), color='purple', linetype='dashed') +
+  geom_vline(aes(xintercept=mean_low_income_access), color='purple', linetype='dashed') +
+  scale_colour_brewer(palette="Set1", na.value='grey50', name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
+  scale_alpha_discrete(range = c(1, 1), na.value=0.2, name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
+  scale_size_discrete(range = c(2,2), na.value=1, name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
+  geom_point() +
+  labs(title='Scatterplot of access rate and success rate for all colleges') +
+  ylab('Success rate') +
+  xlab('Access rate') +
+  theme_bw() + 
+  ggsave('output/eopcuny-03.png')
+```
+
+## CUNY stacks up with other NYC colleges better by access
+
+As we already know, CUNY colleges rank highly in terms of mobility.
+
+```{r, fig.width=11}
+ratings %>% 
+  filter(ipeds_enrollment_2013 > 2000) %>%
+  filter(metroarea == 'New York') %>%
+  arrange(-mobility_rate) %>%
+  select(institution, publicsystem, mobility_rate) %>%
+  ggplot(aes(fct_reorder(institution, mobility_rate), mobility_rate, fill=publicsystem)) + 
+    geom_bar(stat='identity') + 
+    scale_fill_brewer(palette='Set1', na.value='grey60', name=NULL, labels=c("SUNY", "CUNY", "Other")) +
+    labs(title="Mobility rate of colleges in New York metro area enrolling more than 2,000") +
+    xlab('') +
+    ylab('') +
+    geom_text(aes(label=sprintf('%0.2f', mobility_rate)), 
+              hjust=1.5,
+              vjust=0.25,
+              size=2.5,
+              position = position_dodge(width = 1), 
+              colour="white",
+              fontface = "bold",
+              inherit.aes = TRUE) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+When we look just at the access rate, we find CUNY colleges ranking even higher.
+
+```{r, fig.width=11}
+ratings %>% 
+  filter(ipeds_enrollment_2013 > 2000) %>%
+  filter(metroarea == 'New York') %>%
+  arrange(-mobility_rate) %>%
+  select(institution, publicsystem, low_income_access) %>%
+  ggplot(aes(fct_reorder(institution, low_income_access), low_income_access, fill=publicsystem)) + 
+    geom_bar(stat='identity') + 
+    scale_fill_brewer(palette='Set1', na.value='grey60', name=NULL, labels=c("SUNY", "CUNY", "Other")) +
+    labs(title="Access rate of colleges in New York metro area enrolling more than 2,000") +
+    xlab('') +
+    ylab('') +
+    geom_text(aes(label=sprintf('%0.2f', low_income_access)), 
+              hjust=1.5,
+              vjust=0.25,
+              size=2.5,
+              position = position_dodge(width = 1), 
+              colour="white",
+              fontface = "bold",
+              inherit.aes = TRUE) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+However, other colleges, mostly private, rank higher in terms of success rates.
+
+```{r, fig.width=11}
+ratings %>% 
+  filter(ipeds_enrollment_2013 > 2000) %>%
+  filter(metroarea == 'New York') %>%
+  arrange(-mobility_rate) %>%
+  select(institution, publicsystem, success_rate) %>%
+  ggplot(aes(fct_reorder(institution, success_rate), success_rate, fill=publicsystem)) + 
+    geom_bar(stat='identity') + 
+    scale_fill_brewer(palette='Set1', na.value='grey60', name=NULL, labels=c("SUNY", "CUNY", "Other")) +
+    labs(title="Success rate of colleges in New York metro area enrolling more than 2,000") +
+    xlab('') +
+    ylab('') +
+    geom_text(aes(label=sprintf('%0.2f', success_rate)), 
+              hjust=1.5,
+              vjust=0.25,
+              size=2.5,
+              position = position_dodge(width = 1), 
+              colour="white",
+              fontface = "bold",
+              inherit.aes = TRUE) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+## Get you somebody who can do both
+
+1. Inverse relationship between access and success for these higher mobility colleges.
+2. Baruch, City College, and Lehman are highest ranked in mobility but they diverge in terms of access and success. Baruch is exceptional in having the highest success rate but being below average in access among CUNY schools.
+3. The other three oldest colleges in CUNY (Brooklyn, Hunter, Queens) are similar in lower than average access and higher than average success. City College is unique among the four oldest colleges. 
+4. Hostos Community College has the most inverse relationship: while it is average in mobility, it is highest ranked in access but lowest ranked in success.
+5. College of Staten Island is lowest ranked in mobility because of low access.
+
+
+```{r}
+ratings %>%
+  filter(publicsystem == 'CUNY') %>%
+  select(institution, low_income_access, success_rate, mobility_rate) %>%
+  mutate(rank = dense_rank(-mobility_rate)) %>%
+  gather(measure, value, -institution, -rank) %>%
+  mutate(measure = fct_recode(measure,
+                              access = 'low_income_access',
+                              success = 'success_rate',
+                              mobility = 'mobility_rate'),
+         measure = fct_relevel(measure, 'access', 'success', 'mobility')) %>%
+  group_by(measure) %>%
+  mutate(mean_value = mean(value)) %>%
+  arrange(rank) %>%
+  ggplot(aes(x=fct_reorder(institution, -rank), y=value)) +
+    geom_point() +
+    geom_hline(aes(yintercept=mean_value), linetype='dashed', color='red') +
+    coord_flip() +
+    xlab('') +
+    ylab('') +
+    labs(title='Decomposing Mobility Rates for CUNY Colleges') +
+    facet_grid(. ~ measure, scales = 'free') +
+    theme_bw() + 
+    ggsave('output/eopcuny-07.png')
+```
+
+
+
+```{r}
+ratings %>%
+  select(institution, low_income_access, success_rate, mobility_rate) %>%
+  gather(measure, value, -institution) %>%
+  mutate(measure = fct_recode(measure,
+                              access = 'low_income_access',
+                              success = 'success_rate',
+                              mobility = 'mobility_rate'),
+         measure = fct_relevel(measure, 'access', 'success', 'mobility')) %>%
+  group_by(measure) %>%
+  mutate(mean_value = mean(value),
+         sign = sign(value - mean_value)) %>%
+  select(institution, measure, sign) %>%
+  group_by(institution, measure) %>%
+  summarise(sign = max(sign)) %>%
+  spread(measure, sign) %>%
+  group_by(mobility, access, success) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  mutate(percent = n/sum(n))
+```
+
