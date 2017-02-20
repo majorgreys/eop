@@ -6,13 +6,6 @@ output:
   html_document:
     toc: yes
     toc_depth: '2'
-  html_notebook: default
-  md_document:
-    fig_height: 6
-    fig_width: 7
-    toc: yes
-    toc_depth: 2
-    variant: markdown
 ---
 
 Exploring CUNY in the [Equality of Opportunity](http://www.equality-of-opportunity.org/data/) ratings dataset.
@@ -25,6 +18,7 @@ library(readxl)
 library(stringr)
 library(forcats)
 library(knitr)
+library(ggrepel)
 # Download datasets
 dir.create('./data/')
 download.file('http://www.equality-of-opportunity.org/data/college/mrc_table1.xlsx', 
@@ -179,22 +173,24 @@ When we focus in on just the public systems, we can see that the three large pub
 
 ```{r, warning=FALSE}
 ratings %>%
-  mutate(publicsystem = fct_relevel(publicsystem, 'CSU', 'SUNY', 'CUNY'),
+  mutate(publicsystem = fct_relevel(publicsystem, 'CUNY', 'CSU', 'SUNY'),
          mean_success_rate = mean(success_rate),
          mean_low_income_access = mean(low_income_access)) %>%
   ggplot(aes(success_rate, low_income_access, color=publicsystem, size=publicsystem, alpha=publicsystem)) +
-  geom_text_repel(aes(data=(. %>% filter(publicsystem == 'CUNY')), label = institution)) +
   geom_hline(aes(yintercept=mean_success_rate), color='purple', linetype='dashed') +
   geom_vline(aes(xintercept=mean_low_income_access), color='purple', linetype='dashed') +
-  scale_colour_brewer(palette="Set1", na.value='grey50', name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
-  scale_alpha_discrete(range = c(1, 1), na.value=0.2, name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
-  scale_size_discrete(range = c(2,2), na.value=1, name=NULL, labels=c("CSU", "SUNY", "CUNY", "Other")) +
+  scale_colour_brewer(palette="Set1", na.value='grey50', name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
+  scale_alpha_discrete(range = c(1, 1), na.value=0.2, name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
+  scale_size_discrete(range = c(2,2), na.value=1, name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
   geom_point() +
-  labs(title='Scatterplot of access rate and success rate for all colleges') +
+  geom_text_repel(data=(. %>% filter(publicsystem == 'CUNY')), aes(label = institution), 
+                  fontface = 'bold', 
+                  color = 'grey30',
+                  segment.color = 'grey30') +
+  labs(title='Comparison of access and success for CUNY colleges to large public nationwide') +
   ylab('Success rate') +
   xlab('Access rate') +
-  theme_bw() + 
-  ggsave('output/eopcuny-03.png')
+  theme_bw()
 ```
 
 ## CUNY stacks up with other NYC colleges better by access
@@ -314,8 +310,7 @@ ratings %>%
     ylab('') +
     labs(title='Decomposing Mobility Rates for CUNY Colleges') +
     facet_grid(. ~ measure, scales = 'free') +
-    theme_bw() + 
-    ggsave('output/eopcuny-07.png')
+    theme_bw()
 ```
 
 
@@ -339,6 +334,6 @@ ratings %>%
   group_by(mobility, access, success) %>%
   summarise(n = n()) %>%
   ungroup() %>%
-  mutate(percent = n/sum(n))
+  mutate(percent = n/sum(n), sum(n))
 ```
 
