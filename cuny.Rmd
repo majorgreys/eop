@@ -187,10 +187,11 @@ ratings %>%
                   fontface = 'bold', 
                   color = 'grey30',
                   segment.color = 'grey30') +
-  labs(title='Comparison of access and success for CUNY colleges to large public nationwide') +
+  labs(title='Comparison of access and success for CUNY colleges') +
   ylab('Success rate') +
   xlab('Access rate') +
-  theme_bw()
+  theme_bw() +
+  ggsave('output/eopcuny-03.png')
 ```
 
 ## CUNY stacks up with other NYC colleges better by access
