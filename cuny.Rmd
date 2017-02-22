@@ -19,8 +19,9 @@ library(stringr)
 library(forcats)
 library(knitr)
 library(ggrepel)
-# Download datasets
 dir.create('./data/')
+dir.create('./output/')
+# Download datasets
 download.file('http://www.equality-of-opportunity.org/data/college/mrc_table1.xlsx', 
               destfile = "./data/ratings.xlsx",
               method='curl')
@@ -187,22 +188,34 @@ ratings %>%
 
 When we focus in on just the public systems, we can see that the three large public systems cluster differently on the component measures of the mobility rate, which is the product of the access and success rates. Roughly, CSUs seem to have higher access rates whereas CUNYs have higher success rates.
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, fig.width=10}
 ratings %>%
   mutate(publicsystem = fct_relevel(publicsystem, 'CUNY', 'CSU', 'SUNY'),
          mean_success_rate = mean(success_rate),
-         mean_low_income_access = mean(low_income_access)) %>%
-  ggplot(aes(success_rate, low_income_access, color=publicsystem, size=publicsystem, alpha=publicsystem)) +
+         mean_low_income_access = mean(low_income_access),
+         max_success_rate = max(success_rate),
+         max_low_income_access = max(low_income_access)) %>%
+  ggplot(aes(success_rate, low_income_access)) +
   geom_hline(aes(yintercept=mean_success_rate), color='purple', linetype='dashed') +
+  geom_text(aes(x=max_success_rate, y=mean_success_rate, label=sprintf('mean = %.2f', max(mean_success_rate))), 
+            color='purple', 
+            vjust=-1,
+            hjust='inward',
+            size=2) +
   geom_vline(aes(xintercept=mean_low_income_access), color='purple', linetype='dashed') +
+  geom_text(aes(x=mean_low_income_access, y=max_success_rate, label=sprintf('mean = %.2f', max(mean_low_income_access))), 
+            angle=90,
+            color='purple', 
+            vjust=-1,
+            hjust=1,
+            size=2) +
   scale_colour_brewer(palette="Set1", na.value='grey50', name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
   scale_alpha_discrete(range = c(1, 1), na.value=0.2, name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
   scale_size_discrete(range = c(2,2), na.value=1, name=NULL, labels=c('CUNY', 'CSU', 'SUNY', "Other")) +
-  geom_point() +
+  geom_point(aes(color=publicsystem, size=publicsystem, alpha=publicsystem)) +
   geom_text_repel(data=(. %>% filter(publicsystem == 'CUNY')), aes(label = institution), 
                   fontface = 'bold', 
-                  color = 'grey30',
-                  segment.color = 'grey30') +
+                  size = 2) +
   labs(title='Comparison of access and success for CUNY colleges') +
   ylab('Success rate') +
   xlab('Access rate') +
@@ -305,7 +318,7 @@ ratings %>%
 5. College of Staten Island is lowest ranked in mobility because of low access.
 
 
-```{r}
+```{r}  
 ratings %>%
   filter(publicsystem == 'CUNY') %>%
   select(institution, low_income_access, success_rate, mobility_rate) %>%
@@ -321,13 +334,16 @@ ratings %>%
   arrange(rank) %>%
   ggplot(aes(x=fct_reorder(institution, -rank), y=value)) +
     geom_point() +
-    geom_hline(aes(yintercept=mean_value), linetype='dashed', color='red') +
+    geom_hline(aes(yintercept=mean_value, colour='red'), linetype='dashed', show.legend = TRUE) +
+    scale_color_discrete(name=NULL, labels=c('mean')) +
     coord_flip() +
     xlab('') +
     ylab('') +
     labs(title='Decomposing Mobility Rates for CUNY Colleges') +
     facet_grid(. ~ measure, scales = 'free') +
-    theme_bw()
+    theme_bw() + 
+    theme(legend.position = 'bottom') +
+    ggsave('output/eopcuny-07.png')
 ```
 
 
